@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import axios from "axios";
 import {
   LineChart,
@@ -20,15 +20,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  ArrowUpDown,
-  DollarSign,
-  TrendingUp,
-  BarChart2,
-  Percent,
-  Activity,
-} from "lucide-react";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { DollarSign, BarChart2, Percent, Activity } from "lucide-react";
 import { AdditionalInfoCard } from "@/components/additional-info-card";
 
 const CryptoAnalyticsPlatform = () => {
@@ -38,6 +31,9 @@ const CryptoAnalyticsPlatform = () => {
   const [loading, setLoading] = useState(true);
   const [coinInfo, setCoinInfo] = useState(null);
   const [allCoins, setAllCoins] = useState([]);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
 
   const timeRanges = [
     { value: "1", label: "24h" },
@@ -46,26 +42,45 @@ const CryptoAnalyticsPlatform = () => {
     { value: "365", label: "1y" },
   ];
 
+  const observer = useRef();
+  const lastCoinElementRef = useCallback(
+    (node) => {
+      if (isLoadingMore) return;
+      if (observer.current) observer.current.disconnect();
+      observer.current = new IntersectionObserver((entries) => {
+        if (entries[0].isIntersecting && hasMore) {
+          setPage((prevPage) => prevPage + 1);
+        }
+      });
+      if (node) observer.current.observe(node);
+    },
+    [isLoadingMore, hasMore]
+  );
+
   useEffect(() => {
-    const fetchAllCoins = async () => {
+    const fetchCoins = async () => {
+      setIsLoadingMore(true);
       try {
         const response = await axios.get(
-          "https://api.coingecko.com/api/v3/coins/list"
+          `https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=50&page=${page}&sparkline=false`
         );
-        // setAllCoins(
-        //   response.data.map((coin) => ({
-        //     id: coin.id,
-        //     name: coin.name,
-        //     symbol: coin.symbol,
-        //   }))
-        // );
-        setAllCoins(response.data);
+        setAllCoins((prevCoins) => [
+          ...prevCoins,
+          ...response.data.map((coin) => ({
+            id: coin.id,
+            name: coin.name,
+            symbol: coin.symbol,
+          })),
+        ]);
+        setHasMore(response.data.length > 0);
       } catch (error) {
-        console.error("Error fetching all coins:", error);
+        console.error("Error fetching coins:", error);
+      } finally {
+        setIsLoadingMore(false);
       }
     };
-    fetchAllCoins();
-  }, []);
+    fetchCoins();
+  }, [page]);
 
   useEffect(() => {
     const fetchCryptoData = async () => {
@@ -134,12 +149,17 @@ const CryptoAnalyticsPlatform = () => {
           <SelectTrigger className="w-full md:w-[200px] mb-2 md:mb-0">
             <SelectValue placeholder="Select cryptocurrency" />
           </SelectTrigger>
-          <SelectContent>
-            {allCoins.map((crypto) => (
-              <SelectItem key={crypto.id} value={crypto.id}>
+          <SelectContent className="max-h-[300px] overflow-y-auto">
+            {allCoins.map((crypto, index) => (
+              <SelectItem
+                key={crypto.id}
+                value={crypto.id}
+                ref={index === allCoins.length - 1 ? lastCoinElementRef : null}
+              >
                 {crypto.name} ({crypto.symbol.toUpperCase()})
               </SelectItem>
             ))}
+            {isLoadingMore && <SelectItem disabled>Loading more...</SelectItem>}
           </SelectContent>
         </Select>
         <Tabs
